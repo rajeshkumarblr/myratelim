@@ -23,6 +23,62 @@ The implementation follows the **Token Bucket Algorithm** with a **Lazy Refill**
         2.  The bucket-specific lock is acquired during token consumption.
         This minimizes contention and allows different clients to be processed in parallel.
 
+## Design Diagrams
+
+### 1. High-Level Logic Flow
+
+This diagram illustrates how the `RateLimiterManager` delegates the request to the appropriate `TokenBucketRateLimiter` based on the `client_id`.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Manager as RateLimiterManager
+    participant Map as ClientBucketsMap
+    participant Bucket as TokenBucketRateLimiter
+
+    User->>Manager: allowRequest(client_id)
+    Manager->>Map: Lookup bucket for client_id
+    alt Bucket Not Found
+        Map-->>Manager: NULL
+        Manager->>Bucket: Create New Bucket
+        Manager->>Map: Store New Bucket
+    else Bucket Found
+        Map-->>Manager: Return Existing Bucket
+    end
+    Manager->>Bucket: tryConsume(1)
+    Bucket-->>Manager: Return Result (Allowed/Limited)
+    Manager-->>User: Return Result
+```
+
+### 2. Internal Token Consumption (Lazy Refill)
+
+The `tryConsume` operation updates the bucket's state in an O(1) mathematical operation without needing background threads.
+
+```mermaid
+sequenceDiagram
+    participant Manager as RateLimiterManager
+    participant Bucket as TokenBucketRateLimiter
+    participant Clock as steady_clock
+
+    Manager->>Bucket: tryConsume(requested_tokens)
+    activate Bucket
+    Bucket->>Bucket: Lock bucket_mtx_
+    Bucket->>Clock: Now()
+    Clock-->>Bucket: currentTime
+    Bucket->>Bucket: nanos_elapsed = currentTime - last_refill_time
+    Bucket->>Bucket: tokens_to_add = nanos_elapsed * refill_rate
+    Bucket->>Bucket: current_tokens = min(capacity, current_tokens + tokens_to_add)
+    Bucket->>Bucket: last_refill_time = currentTime
+    alt current_tokens >= requested_tokens
+        Bucket->>Bucket: current_tokens -= requested_tokens
+        Bucket-->>Manager: Result: True (Allowed)
+    else
+        Bucket-->>Manager: Result: False (Limited)
+    end
+    Bucket->>Bucket: Unlock bucket_mtx_
+    deactivate Bucket
+```
+
 ### Key Features
 
 *   **Precision Engineering**: Uses `std::chrono::steady_clock` for accurate time delta calculations, immune to system clock adjustments.
