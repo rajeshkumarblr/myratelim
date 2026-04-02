@@ -97,6 +97,7 @@ public:
     }
 
     bool allowRequest(const std::string &client_id, const std::string& tier_name, double &out_tokens) {
+        out_tokens = 0.0; // Initialize out_tokens early
         std::shared_ptr<TokenBucketRateLimiter> limiter;
         {
             std::lock_guard<std::mutex> map_lock(manager_mtx_);
@@ -136,7 +137,7 @@ int main() {
     
     auto run_test = [&](const std::string& user, int count) {
         for (int i = 0; i < count; ++i) {
-            double tokens;
+            double tokens = 0.0; // Initialize for safety
             bool allowed = manager.allowRequest(user, "Free", tokens);
             std::cout << "[" << get_timestamp() << "] [" << user << "] Request " << (i+1) 
                       << ": " << (allowed ? "Allowed" : "Limited") << " (Tokens: " << tokens << ")" << std::endl;
